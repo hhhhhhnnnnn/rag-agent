@@ -3,6 +3,9 @@
 __pycache__/
 *.pyc
 
+# IDE
+.idea/
+
 # 密钥，绝不入库
 .env
 
