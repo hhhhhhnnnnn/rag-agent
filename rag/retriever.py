@@ -37,25 +37,46 @@ class Retriever:
         # TODO(建议): 创建集合时指定 cosine 距离，例如
         #   self.client.get_or_create_collection(
         #       name=s.collection, metadata={"hnsw:space": "cosine"})
-        self.collection = self.client.get_or_create_collection(name=s.collection)
+        self.collection = self.client.get_or_create_collection(name=s.collection,metadata={"hnsw:space":"cosine"})
 
     def ingest(self, chunks: list[dict]) -> int:
         """把切块向量化后写入向量库，返回写入条数。"""
-        # TODO(你来实现):
+        # TODO:
         #   1. ids    = [f"{c['source']}#{c['chunk_index']}" for c in chunks]
         #   2. docs   = [c["text"] for c in chunks]
         #   3. metas  = [{"source": c["source"], "chunk_index": c["chunk_index"]} ...]
         #   4. vectors = embed(docs)
         #   5. self.collection.upsert(ids=..., documents=..., embeddings=..., metadatas=...)
-        raise NotImplementedError("retriever.Retriever.ingest 待实现")
+        ids=[f"{c['source']}#{c['chunk_index']}"for c in chunks]
+        docs=[c['text']for c in chunks]
+        metas= [ {"source": c["source"],"chunk_index":c["chunk_index"]} for c in chunks]
+        vectors=embed(docs)
+        self.collection.upsert(ids=ids,documents=docs,embeddings=vectors,metadatas=metas)
+        print(f"已添加{self.collection.count()}条文档到数据库")
+        return len(chunks)
+
+        # raise NotImplementedError("retriever.Retriever.ingest 待实现")
 
     def search(self, query: str, top_k: int | None = None) -> list[dict]:
         """向量检索，返回 [{"text", "source", "chunk_index", "score"}, ...] 按分数降序。"""
-        # TODO(你来实现):
+        # TODO:
         #   1. qvec = embed([query])[0]
         #   2. res = self.collection.query(
         #          query_embeddings=[qvec], n_results=top_k or self.settings.top_k,
         #          include=["documents", "metadatas", "distances"])
         #   3. cosine 空间下 distance = 1 - similarity，
         #      换算 score = 1 - distance 后按 score 降序返回
-        raise NotImplementedError("retriever.Retriever.search 待实现")
+        qvec=embed([query])[0]
+        result=self.collection.query(
+            query_embeddings=[qvec],
+            n_results=top_k or self.settings.top_k,
+            include=["documents","metadatas","distances"]
+        )
+        hits=[
+            {"text":doc,"score":1-dist,**meta}
+            for doc,meta,dist in zip(
+                result["documents"][0],result["metadatas"][0],result["distances"][0]
+            )
+        ]
+
+        return sorted(hits,key=lambda h : h["score"],reverse=True)

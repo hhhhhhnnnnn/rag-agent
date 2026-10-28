@@ -25,7 +25,11 @@
 
 from __future__ import annotations
 
+import re
+
 from .config import get_settings
+
+_HEADING_RE = re.compile(r"^#{1,6}\s")
 
 
 def chunk_text(text: str, source: str) -> list[dict]:
@@ -38,12 +42,65 @@ def chunk_text(text: str, source: str) -> list[dict]:
     Returns:
         [{"text": 块内容, "source": 文件名, "chunk_index": 序号}, ...]
     """
-    # TODO(你来实现):
-    #   1. 按空行先把原文分成"自然段"，再识别 Markdown 标题行作为分界
-    #   2. 用 settings.chunk_size / settings.chunk_overlap 控制块长与重叠
-    #   3. 超长段落用滑动窗口硬切兜底
-    #   4. 丢弃纯空白块，按顺序给每块编号 chunk_index
-    raise NotImplementedError("chunker.chunk_text 待实现 —— 实现思路见本文件顶部注释")
+    settings = get_settings()
+    size, ov = settings.chunk_size, settings.chunk_overlap
+
+    # 按空行分自然段（str.split 不认正则，必须用 re.split）
+    paras = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+
+    pieces: list[str] = []  # 先攒纯文本，最后统一编号、包装元数据
+    buf = ""
+    for p in paras:
+        if len(p) > size:  # 超长段落：冲掉缓冲区，滑动窗口硬切兜底
+            if buf:
+                pieces.append(buf)
+                buf = ""
+            pieces.extend(window_split(p, size, ov))
+        elif not buf:
+            buf = p
+        elif _HEADING_RE.match(p):  # Markdown 标题总是开新块（章节分界）
+            pieces.append(buf)
+            buf = p
+        elif len(buf) + len(p) + 2 <= size:  # +2 = 连接符 "\n\n"
+            buf = f"{buf}\n\n{p}"
+        else:  # 装不下了：收走旧 buf，带上 overlap 尾巴开新块
+            pieces.append(buf)
+            tail = buf[-ov:] if ov else ""
+            buf = f"{tail}\n\n{p}" if tail else p
+    if buf:
+        pieces.append(buf)
+
+    # 统一编号 + 元数据，顺手过滤空白块
+    return [
+        {"text": piece, "source": source, "chunk_index": i}
+        for i, piece in enumerate(pieces)
+        if piece.strip()
+    ]
+
+
+def window_split(text: str, size: int, ov: int) -> list[str]:
+    """滑动窗口硬切兜底：步长 = size - ov，尽量在句末标点处断开。"""
+    if len(text) <= size:
+        return [text]
+
+    pieces, start = [], 0
+    while start < len(text):
+        end = min(start + size, len(text))
+        if end < len(text):
+            # 在块内后半段找句末标点，避免把句子拦腰斩断
+            head = text[start:end]
+            cut = max(
+                head.rfind("。"), head.rfind("！"), head.rfind("？"),
+                head.rfind("."), head.rfind("!"), head.rfind("?"),
+                head.rfind("\n"),
+            )
+            if cut >= size * 0.6:  # 断点足够靠后才采用；找不到是 -1，自然被排除
+                end = start + cut + 1
+        pieces.append(text[start:end])
+        if end >= len(text):
+            break  # 最后一块不再回退 overlap，否则死循环
+        start = max(end - ov, start + 1)  # 至少前进 1，保证循环可终止
+    return pieces
 
 
 def chunk_all(docs: list[dict]) -> list[dict]:

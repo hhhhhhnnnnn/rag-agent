@@ -48,7 +48,18 @@ def build_prompt(question: str, hits: list[dict]) -> list[dict]:
     #   2. 拼成一条 user 消息（片段 + 问题）
     #   3. 返回 [{"role": "system", "content": SYSTEM_PROMPT},
     #            {"role": "user", "content": ...}]
-    raise NotImplementedError("generator.build_prompt 待实现 —— 格式建议见 docstring")
+    #raise NotImplementedError("generator.build_prompt 待实现 —— 格式建议见 docstring")
+
+    blocks=[]
+    for i , h in enumerate(hits,1):
+        blocks.append(f"[{i}](来源:{h['source']}第{h['chunk_index']+1}块)\n{h['text']}")
+    context="\n\n".join(blocks)
+
+    user=f"用户的问题{question},参考资料：{context}"
+
+    return [{"role": "system", "content": SYSTEM_PROMPT},
+               {"role": "user", "content": user}]
+
 
 
 def answer(question: str, hits: list[dict]) -> str:
