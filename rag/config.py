@@ -43,6 +43,9 @@ class Settings:
     chunk_overlap: int
     top_k: int
     sim_threshold: float
+    recall_n: int
+    rerank_model: str
+    rerank_candidates: int
     db_dir: Path
     data_dir: Path
     collection: str
@@ -76,6 +79,9 @@ def get_settings() -> Settings:
         chunk_overlap=int(os.environ.get("CHUNK_OVERLAP", "50")),
         top_k=int(os.environ.get("TOP_K", "5")),
         sim_threshold=float(os.environ.get("SIM_THRESHOLD", "0.3")),
+        recall_n=int(os.environ.get("RECALL_N", "10")),
+        rerank_model=os.environ.get("RERANK_MODEL", "qwen3.7-text-rerank"),
+        rerank_candidates=int(os.environ.get("RERANK_CANDIDATES", "8")),
         db_dir=ROOT / os.environ.get("DB_DIR", "db/chroma"),
         data_dir=ROOT / os.environ.get("DATA_DIR", "data"),
         collection=os.environ.get("COLLECTION_NAME", "docs"),
