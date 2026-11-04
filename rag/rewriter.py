@@ -33,10 +33,20 @@
 """
 from __future__ import annotations
 
+import re
+
 from .llm import chat
 
 HISTORY_WINDOW = 6  # 带给改写模型的最近消息条数（防 token 膨胀 + 减少干扰）
 
+_SYSTEM_RULES = (
+    "你是查询改写助手，把用户在多轮对话中的最新问题改写成"
+    "完整的、独立的、无需上下文也能回答的问题。规则：\n"      
+    "1. 只输出改写后的问题本身——不要解释、不要引号、不要前缀\n"
+    "2. 问题已经独立完整时，原样返回\n"
+    "3. 只能使用对话历史里出现的信息，不许编造"
+)
+_USER_TMPL = "对话历史：\n{chat_history}\n\n用户最新问题：{query}\n\n改写后的独立问题："
 
 def rewrite(question: str, history: list[dict]) -> str:
     """把 question 结合 history 改写成不依赖上下文的独立问题。
@@ -49,11 +59,48 @@ def rewrite(question: str, history: list[dict]) -> str:
         独立问题；首轮或任何失败返回原 question（降级契约）。
     """
     if not history:
-        return question  # 已实现：首轮免改写，零成本
+        return question  # 首轮免改写，零成本
 
-    # TODO(你来实现):
-    #   1. 构造 messages: system(三条铁律) + history 最近 HISTORY_WINDOW 条 + user(question)
-    #   2. out = chat(messages, temperature=0)
-    #   3. 清洗输出（见设计要点 6）；清洗后为空就用原问题
-    #   4. try/except 兜底：打印一行原因后 return question（三条件里的"留痕"）
-    raise NotImplementedError("rewrite 待实现 —— 思路见 docstring")
+    history_text = "\n".join(
+        f"{'用户' if h['role']=='user' else '助手'}:{h['content']}"
+        for h in history[-HISTORY_WINDOW:]
+    )
+    user_msg=_USER_TMPL.format(chat_history=history_text,query=question)
+    message=[
+        {"role": "system", "content" : _SYSTEM_RULES},
+        {"role":  "user", "content" : user_msg},
+    ]
+    try:
+        out=chat(message,temperature=0)
+    except Exception as e:
+        print(f"[rewriter] 改写失败，用原问题：{type(e).__name__}")
+        return question
+
+
+    # 数据清洗
+
+    rewritten=clean_llm_output(out,question)
+
+    return rewritten
+
+
+def clean_llm_output(text:str,original_text:str) ->str:
+    if text is None:
+        return original_text
+
+    s=text.strip()
+
+    s=re.sub(r'^\s*(问题|Q|问)\s*[：:]\s*','',s,flags=re.IGNORECASE).strip()
+
+    pairs = [('"', '"'), ("'", "'"), ('“', '”'), ('‘', '’'), ('「', '」'), ('『', '』')]
+
+    changed=True
+    while(changed):
+        changed=False
+        for lq,rq in pairs:
+            if len(s)>=2 and s.startswith(lq) and s.endswith(rq):
+                s=s[len(lq):-len(rq)].strip()
+                changed=True
+
+    s = re.sub(r'[。.\s]+$', '', s).strip()
+    return s if s else original_text

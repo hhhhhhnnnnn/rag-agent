@@ -1,6 +1,20 @@
 # RAG 问答智能体
 
-文档问答系统（v0.2）：混合检索 + 云端精排，接阿里云百炼**业务空间专属端点**（OpenAI 兼容协议）。
+文档问答系统（v0.3）：多轮对话 + 查询改写（指代消解），底层为混合检索 + 云端精排，接阿里云百炼**业务空间专属端点**（OpenAI 兼容协议）。
+
+## 多轮对话（v0.3）
+
+```
+用户问题 ──> rewrite()：结合最近 6 条历史，把"那序列号在哪里？"改写成
+             "星尘音箱X1的序列号在哪里？"（首轮免改写，temperature=0，
+             失败自动退回原问题——改写是增强不是依赖）
+                ↓ 独立问题
+           v0.2 检索管线（混合召回 → RRF → 精排）
+                ↓
+           带引用回答，原始问答计入历史
+```
+
+改写三铁律：只输出问题本身 / 已独立完整则原样返回 / 只用历史里出现过的信息（不许编造——保证拒答闸不被无关问题的"改写"骗开）。
 
 ## 检索架构（v0.2）
 
@@ -31,13 +45,15 @@ rag-agent/
 │   ├── chunker.py       # 切块：标题分界 + 段落合并 + 滑窗兜底
 │   ├── retriever.py     # 混合检索：向量+BM25+RRF+精排（含手写 BM25、零依赖分词）
 │   ├── rerank.py        # 云端 rerank 精排（DashScope 原生协议，失败自动降级）
+│   ├── rewriter.py      # 查询改写：多轮指代消解（失败退回原问题）
 │   └── generator.py     # Prompt 组装与回答
 ├── scripts/
 │   ├── check_env.py     # 环境自检（版本/依赖/配置/API 连通性）
 │   ├── probe_qwen.py    # 探测工作空间可用模型（对话模型候选实测）
 │   ├── probe_rerank.py  # 探测 rerank 接口路径
 │   ├── ask_once.py      # 单发一问（显示命中块与分数，便于调试）
-│   └── calibrate.py     # 阈值校准：批量问题只看检索分，不调 LLM
+│   ├── calibrate.py     # 阈值校准：批量问题只看检索分，不调 LLM
+│   └── test_multiturn.py # v0.3 验收：四轮剧本测改写、指代消解与拒答闸
 ├── ingest.py            # 入库：加载 -> 切块 -> 向量化 -> 入库
 ├── chat.py              # 交互式问答
 ├── .env                 # 密钥与参数（已被 .gitignore 排除）
@@ -50,8 +66,9 @@ rag-agent/
 # 配置：编辑 .env 填 API key（专属端点 key 必须配专属域名，见下方注意事项）
 .venv\Scripts\python scripts\check_env.py     # 自检，四项全过
 .venv\Scripts\python ingest.py                # 入库（data/ 加了新文档后重跑）
-.venv\Scripts\python chat.py                  # 交互问答
+.venv\Scripts\python chat.py                  # 交互问答（多轮，自动改写）
 .venv\Scripts\python scripts\ask_once.py "保修多久"   # 单发一问
+.venv\Scripts\python scripts\test_multiturn.py        # 多轮改写验收剧本
 ```
 
 ## 注意事项
@@ -70,6 +87,6 @@ rag-agent/
 |------|------|------|
 | v0.1 | 切块 + 向量检索 + 带引用回答 + 拒答 | ✅ 完成 |
 | v0.2 | BM25+向量混合召回、RRF 融合、云端 rerank 精排 | ✅ 完成 |
-| v0.3 | 查询改写 + 多轮对话（指代消解） | 下一步 |
+| v0.3 | 查询改写 + 多轮对话（指代消解） | ✅ 完成 |
 | v0.4 | Web UI（Streamlit 或 FastAPI + 前端） | |
 | v0.5 | 评估集 + RAGAS 指标（忠实度/相关性/上下文精度） | |
