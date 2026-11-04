@@ -1,6 +1,17 @@
 # RAG 问答智能体
 
-文档问答系统（v0.5）：多轮对话 + 查询改写 + 评估体系，底层为混合检索 + 云端精排，接阿里云百炼**业务空间专属端点**（OpenAI 兼容协议）。
+文档问答系统（v0.4）：Web 服务 + 多轮对话 + 查询改写 + 评估体系，底层为混合检索 + 云端精排，接阿里云百炼**业务空间专属端点**（OpenAI 兼容协议）。
+
+## Web 服务（v0.4）
+
+```powershell
+.venv\Scripts\python web.py     # http://127.0.0.1:8000（PORT 环境变量可改端口）
+```
+
+- **零新增依赖**：裸 ASGI + uvicorn（chromadb 依赖树自带），路由/JSON 手写——不赌本机的 pip
+- 功能：多轮对话（会话历史在服务端内存，刷新页面不丢）、改写透明展示、引用来源 chips、拒答样式、一键"重建索引"（入库后热重建 BM25，常驻进程专属能力）
+- 同步业务逻辑走线程池（`run_in_executor`），事件循环不被检索/LLM 调用阻塞
+- 限制：会话不落盘（重启即新对话）、仅绑 127.0.0.1 本地使用、无鉴权
 
 ## 评估体系（v0.5）
 
@@ -76,7 +87,10 @@ rag-agent/
 │   ├── questions.json   # 评估问题集（金标：expect_source/keywords/should_refuse）
 │   └── reports/         # 评估报告产物（gitignore）
 ├── ingest.py            # 入库：加载 -> 切块 -> 向量化 -> 入库
-├── chat.py              # 交互式问答
+├── chat.py              # 交互式问答（CLI）
+├── web.py               # Web 服务入口（裸 ASGI + uvicorn，零新增依赖）
+├── web/
+│   └── index.html       # 前端单页（原生 JS，零构建零 CDN）
 ├── .env                 # 密钥与参数（已被 .gitignore 排除）
 └── .env.example         # 配置模板
 ```
@@ -88,6 +102,7 @@ rag-agent/
 .venv\Scripts\python scripts\check_env.py     # 自检，四项全过
 .venv\Scripts\python ingest.py                # 入库（data/ 加了新文档后重跑）
 .venv\Scripts\python chat.py                  # 交互问答（多轮，自动改写）
+.venv\Scripts\python web.py                   # Web 界面: http://127.0.0.1:8000
 .venv\Scripts\python scripts\ask_once.py "保修多久"   # 单发一问
 .venv\Scripts\python scripts\test_multiturn.py        # 多轮改写验收剧本
 .venv\Scripts\python scripts\eval.py                  # 评估：仅检索指标（零成本）
@@ -111,5 +126,5 @@ rag-agent/
 | v0.1 | 切块 + 向量检索 + 带引用回答 + 拒答 | ✅ 完成 |
 | v0.2 | BM25+向量混合召回、RRF 融合、云端 rerank 精排 | ✅ 完成 |
 | v0.3 | 查询改写 + 多轮对话（指代消解） | ✅ 完成 |
-| v0.4 | Web UI（Streamlit 或 FastAPI + 前端） | |
+| v0.4 | Web UI（裸 ASGI + uvicorn，零新增依赖；热重建索引） | ✅ 完成 |
 | v0.5 | 评估集 + 指标（检索 hit/MRR + LLM judge 忠实度/相关性，零 RAGAS 依赖） | ✅ 完成 |

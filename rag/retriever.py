@@ -281,6 +281,17 @@ class Retriever:
         self._bm25 = _BM25([_tokenize(d) for d in documents]) if documents else None
         self._bm25_loaded = True
 
+    def invalidate_bm25(self) -> None:
+        """v0.4：入库新文档后调用，让下次检索重建 BM25 索引。
+
+        CLI 场景（v0.1~v0.3）每次运行都是新进程，不存在此问题；
+        Web 常驻服务里 ingest 之后必须调这个，否则 BM25 通道永远看不到新文档。
+        """
+        self._bm25 = None
+        self._bm25_loaded = False
+        self._bm25_docs = []
+        self._bm25_metas = []
+
 
     def _bm25_search(self, query: str, n: int) -> list[dict]:
         """BM25 通道：精确词频召回（对编号/型号/专有名词友好）。
