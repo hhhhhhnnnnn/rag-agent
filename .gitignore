@@ -11,3 +11,6 @@ __pycache__/
 
 # 向量库数据（可随时由 ingest.py 重建）
 db/chroma/
+
+# 评估报告产物（问题集 questions.json 入库，报告不入库）
+eval/reports/
