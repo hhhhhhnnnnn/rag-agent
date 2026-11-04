@@ -1,6 +1,21 @@
 # RAG 问答智能体
 
-文档问答系统（v0.3）：多轮对话 + 查询改写（指代消解），底层为混合检索 + 云端精排，接阿里云百炼**业务空间专属端点**（OpenAI 兼容协议）。
+文档问答系统（v0.5）：多轮对话 + 查询改写 + 评估体系，底层为混合检索 + 云端精排，接阿里云百炼**业务空间专属端点**（OpenAI 兼容协议）。
+
+## 评估体系（v0.5）
+
+零 RAGAS 依赖（pip 装不动大依赖链，judge 本质是固定提示词+解析输出，手写实现）：
+
+| 指标 | 类型 | 说明 |
+|------|------|------|
+| 拒答准确率 | 免费 | 该拒的拒了 / 该答的答了 |
+| hit@5 / MRR | 免费 | 金标块是否命中、排第几 |
+| 关键词命中 | --full | 回答含期望关键词 |
+| 忠实度 / 相关性 | --full | LLM-as-judge 打分 1~5（量表锚点 + 只输出 JSON） |
+
+用法：`eval.py`（仅检索，零 LLM 成本）/ `eval.py --full`（全量）；报告落 `eval/reports/`（含设置快照 + git 版本）。**改参数前后各跑一次对比聚合分，从此优化从"感觉"变"数据"。**
+
+当前基线（12 题）：拒答 1.0 / hit 1.0 / MRR 1.0 / 关键词 1.0 / 忠实 5.0 / 相关 5.0。
 
 ## 多轮对话（v0.3）
 
@@ -46,6 +61,7 @@ rag-agent/
 │   ├── retriever.py     # 混合检索：向量+BM25+RRF+精排（含手写 BM25、零依赖分词）
 │   ├── rerank.py        # 云端 rerank 精排（DashScope 原生协议，失败自动降级）
 │   ├── rewriter.py      # 查询改写：多轮指代消解（失败退回原问题）
+│   ├── evaluator.py     # LLM-as-judge：忠实度/相关性打分（零 RAGAS 依赖）
 │   └── generator.py     # Prompt 组装与回答
 ├── scripts/
 │   ├── check_env.py     # 环境自检（版本/依赖/配置/API 连通性）
@@ -53,7 +69,12 @@ rag-agent/
 │   ├── probe_rerank.py  # 探测 rerank 接口路径
 │   ├── ask_once.py      # 单发一问（显示命中块与分数，便于调试）
 │   ├── calibrate.py     # 阈值校准：批量问题只看检索分，不调 LLM
-│   └── test_multiturn.py # v0.3 验收：四轮剧本测改写、指代消解与拒答闸
+│   ├── test_multiturn.py # v0.3 验收：四轮剧本测改写、指代消解与拒答闸
+│   ├── eval.py          # v0.5 评估：问题集跑批，检索指标+judge，报告落盘
+│   └── dump_kb.py       # 打印库内全部切块（人工核对金标用）
+├── eval/
+│   ├── questions.json   # 评估问题集（金标：expect_source/keywords/should_refuse）
+│   └── reports/         # 评估报告产物（gitignore）
 ├── ingest.py            # 入库：加载 -> 切块 -> 向量化 -> 入库
 ├── chat.py              # 交互式问答
 ├── .env                 # 密钥与参数（已被 .gitignore 排除）
@@ -69,6 +90,8 @@ rag-agent/
 .venv\Scripts\python chat.py                  # 交互问答（多轮，自动改写）
 .venv\Scripts\python scripts\ask_once.py "保修多久"   # 单发一问
 .venv\Scripts\python scripts\test_multiturn.py        # 多轮改写验收剧本
+.venv\Scripts\python scripts\eval.py                  # 评估：仅检索指标（零成本）
+.venv\Scripts\python scripts\eval.py --full           # 评估：加生成+judge打分
 ```
 
 ## 注意事项
@@ -89,4 +112,4 @@ rag-agent/
 | v0.2 | BM25+向量混合召回、RRF 融合、云端 rerank 精排 | ✅ 完成 |
 | v0.3 | 查询改写 + 多轮对话（指代消解） | ✅ 完成 |
 | v0.4 | Web UI（Streamlit 或 FastAPI + 前端） | |
-| v0.5 | 评估集 + RAGAS 指标（忠实度/相关性/上下文精度） | |
+| v0.5 | 评估集 + 指标（检索 hit/MRR + LLM judge 忠实度/相关性，零 RAGAS 依赖） | ✅ 完成 |

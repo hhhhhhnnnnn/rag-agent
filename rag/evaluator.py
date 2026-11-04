@@ -52,33 +52,75 @@ def _parse_json_block(text: str) -> dict | None:
         return None
 
 
-def judge_faithfulness(question: str, answer: str, contexts: list[str]) -> dict | None:
-    """忠实度：回答是否句句有出处（对照检索片段判断，防幻觉）。
+def _valid_score(obj: dict) -> int | None:
+    """从 judge 输出里提取合法的 1~5 整数分；非法返回 None。
 
-    Args:
-        question: 用户问题（给 judge 背景用）。
-        answer: 待评估的回答。
-        contexts: 检索到的参考片段列表。
-
-    Returns:
-        {"score": 1~5 的整数, "reason": "一句话依据"}；
-        解析失败或调用异常返回 None（runner 记 judge_failed）。
+    防御点：json.loads 后 true/false 会变成 bool——而 bool 是 int 的子类，
+    isinstance(True, int) 为 True！所以要先排除 bool，再验范围。
     """
-    # TODO(你来实现):
-    #   1. system: 评估员人设 + 量表锚点（见设计要点 3）+ "只输出 JSON" 铁律
-    #   2. user:   问题描述 + 参考资料全文 + 回答全文，要求逐句对照打分
-    #   3. out = chat(messages, temperature=0)
-    #   4. _parse_json_block(out) 解析；score 不在 1~5 整数范围内视为 None
-    #   5. try/except 兜底返回 None（三条件：预期失败+留痕+有退路）
-    raise NotImplementedError("judge_faithfulness 待实现 —— 思路见 docstring")
+    raw = obj.get("score")
+    if isinstance(raw, bool):
+        return None
+    try:
+        s = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return s if 1 <= s <= 5 else None
+
+
+_FAITH_SYSTEM = (
+    "你是RAG系统的质量评估员。判断\"回答\"是否严格基于给定的参考资料，"
+    "逐句对照：回答中的每个事实是否都能在参考资料中找到依据。\n"
+    "量表（score 取 1~5 的整数）：\n"
+    "5 = 全部有出处，没有任何编造或外部信息\n"
+    "4 = 基本有出处，仅措辞性引申\n"
+    "3 = 大部分有出处，个别事实无依据\n"
+    "2 = 少部分有出处，多数内容无依据\n"
+    "1 = 基本编造，与资料无关\n"
+    '只输出 JSON：{"score": 整数, "reason": "一句话依据"}，不要输出其他任何内容'
+)
+
+_RELEV_SYSTEM = (
+    "你是问答系统的质量评估员。判断\"回答\"是否切题地回答了\"问题\""
+    "（只看问答对本身，不引入外部知识）。\n"
+    "量表（score 取 1~5 的整数）：\n"
+    "5 = 完全切题，直接回答了问题\n"
+    "4 = 切题，但略欠完整\n"
+    "3 = 沾边，没有答到问题核心\n"
+    "2 = 大部分跑题\n"
+    "1 = 答非所问\n"
+    '只输出 JSON：{"score": 整数, "reason": "一句话依据"}，不要输出其他任何内容'
+)
+
+
+def _judge(system: str, user: str) -> dict | None:
+    """两个 judge 的公共骨架：调用 -> 解析 -> 校验，任何失败返回 None。"""
+    try:
+        out = chat(
+            [{"role": "system", "content": system},
+             {"role": "user", "content": user}],
+            temperature=0,  # 评估要可复现
+        )
+    except Exception as e:
+        print(f"[evaluator] judge 调用失败: {type(e).__name__}")
+        return None
+    obj = _parse_json_block(out)
+    if obj is None:
+        return None
+    score = _valid_score(obj)
+    if score is None:
+        return None
+    return {"score": score, "reason": str(obj.get("reason", ""))[:100]}
+
+
+def judge_faithfulness(question: str, answer: str, contexts: list[str]) -> dict | None:
+    """忠实度：回答是否句句有出处（对照检索片段判断，防幻觉）。"""
+    ctx = "\n".join(f"[{i}] {c}" for i, c in enumerate(contexts, 1))
+    user = f"问题：{question}\n\n参考资料：\n{ctx}\n\n回答：{answer}\n\n请评估回答的忠实度。"
+    return _judge(_FAITH_SYSTEM, user)
 
 
 def judge_relevance(question: str, answer: str) -> dict | None:
-    """答案相关性：回答是否切题回答了问题（不看检索片段，只看问答对）。
-
-    Returns: 同 judge_faithfulness。
-    """
-    # TODO(你来实现):
-    #   与 faithfulness 同构，区别：user 消息里没有参考资料，
-    #   问的是"回答有没有答到问题的点上"
-    raise NotImplementedError("judge_relevance 待实现 —— 思路见 docstring")
+    """答案相关性：回答是否切题回答了问题（不看检索片段，只看问答对）。"""
+    user = f"问题：{question}\n\n回答：{answer}\n\n请评估回答的相关性。"
+    return _judge(_RELEV_SYSTEM, user)

@@ -23,35 +23,35 @@
   {
     "id": "q04",
     "question": "音箱的唤醒词是什么？",
-    "expect_source": null,
+    "expect_source": "sample.md#chunk3",
     "expect_keywords": ["你好", "星尘"],
     "should_refuse": false
   },
   {
     "id": "q05",
     "question": "配网需要安装什么App？",
-    "expect_source": null,
+    "expect_source": "sample.md#chunk3",
     "expect_keywords": ["星尘之声"],
     "should_refuse": false
   },
   {
     "id": "q06",
     "question": "音箱的蓝牙版本是多少？",
-    "expect_source": null,
+    "expect_source": "sample.md#chunk2",
     "expect_keywords": ["5.3"],
     "should_refuse": false
   },
   {
     "id": "q07",
     "question": "音箱有多重？",
-    "expect_source": null,
+    "expect_source": "sample.md#chunk2",
     "expect_keywords": ["620"],
     "should_refuse": false
   },
   {
     "id": "q08",
     "question": "无法开机应该怎么办？",
-    "expect_source": null,
+    "expect_source": "sample.md#chunk5",
     "expect_keywords": ["电源", "重启"],
     "should_refuse": false
   },
@@ -71,16 +71,16 @@
   },
   {
     "id": "q11",
-    "question": "TODO(你)：为智能办公助手文档出一道事实题，填 expect_source 和 expect_keywords",
-    "expect_source": null,
-    "expect_keywords": [],
+    "question": "智能办公助手的部署，系统环境对于JDK的要求是什么？",
+    "expect_source": "智能办公助手使用与运维知识库.docx#chunk4",
+    "expect_keywords": ["JDK 17 及以上版本"],
     "should_refuse": false
   },
   {
     "id": "q12",
-    "question": "TODO(你)：为智能办公助手文档再出一道事实题或拒答题",
-    "expect_source": null,
-    "expect_keywords": [],
+    "question": "智能办公助手支持的检索策略有那几种",
+    "expect_source": "智能办公助手使用与运维知识库.docx#chunk1",
+    "expect_keywords": ["向量检索","混合检索","关键词检索"],
     "should_refuse": false
   }
 ]
