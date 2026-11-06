@@ -82,5 +82,41 @@
     "expect_source": "智能办公助手使用与运维知识库.docx#chunk1",
     "expect_keywords": ["向量检索","混合检索","关键词检索"],
     "should_refuse": false
+  },
+  {
+    "id": "q13",
+    "question": "智能办公助手的服务人群是谁？",
+    "expect_source": "智能办公助手使用与运维知识库.docx#chunk1",
+    "expect_keywords": ["内部员工","客服人员","数据分析人员","系统运维人员"],
+    "should_refuse": false
+  },
+  {
+    "id": "q14",
+    "question": "音箱开不了机怎么搞?",
+    "expect_source": "sample.md#chunk5",
+    "expect_keywords": ["电源","重启"],
+    "should_refuse": false
+  },
+  {
+    "id": "q15",
+    "question": "音箱支持连接苹果手机吗？",
+    "expect_source": null,
+    "expect_keywords": [],
+    "should_refuse": false
+  },
+  {
+    "id": "q16",
+    "question": "音箱可以贴墙安装吗",
+    "expect_source": null,
+    "expect_keywords": [],
+    "should_refuse": true
+  },
+  {
+    "id": "q17",
+    "question": "音箱的基本参数和保修政策分别是什么",
+    "expect_source": ["sample.md#chunk2","sample.md#chunk7"],
+    "expect_keywords": [],
+    "should_refuse": false
   }
+
 ]

@@ -50,26 +50,39 @@ def retrieval_row(q: dict, hits: list[dict], threshold: float, top_k: int) -> di
         "hit": None,
         "mrr": None,
     }
-    if q["expect_source"]:
+    gold = q.get("expect_source")
+    if gold:
+        # 多金标支持：expect_source 可以是 "file#chunkN" 或其数组（跨块题）。
+        # hit 语义升级为金标召回率（1.0=全中 0.5=中一半）；mrr 取最好命中的排名。
+        golds = gold if isinstance(gold, list) else [gold]
         keys = [f"{h['source']}#chunk{h['chunk_index']}" for h in hits[:top_k]]
-        gold = q["expect_source"]
-        row["hit"] = int(gold in keys)
-        row["mrr"] = round(1.0 / (keys.index(gold) + 1), 2) if gold in keys else 0.0
+        ranks = [keys.index(g) + 1 for g in golds if g in keys]
+        row["hit"] = round(len(ranks) / len(golds), 2)
+        row["mrr"] = round(1.0 / min(ranks), 2) if ranks else 0.0
     return row
 
 
 def gen_row(q: dict, hits: list[dict], row: dict) -> dict:
-    """--full 阶段：生成回答 + 关键词命中 + judge 打分（未实现自动降级）。"""
+    """--full 阶段：生成回答 + 关键词命中 + judge 打分（未实现自动降级）。
+
+    拒答式回答（"没有相关内容"）只判忠实度：faith judge 手里有资料，
+    能核实拒答对不对（资料确实无答案=5 / 有答案却拒=3）；
+    relev judge 看不到资料，无从核实拒答正确性，记"拒答"哨兵值不进均值。
+    """
     from rag import evaluator  # 延迟导入：骨架态也能跑检索阶段
 
     reply = answer(q["question"], hits)
     row["answer"] = reply
     row["keyword_ok"] = all(k in reply for k in q["expect_keywords"]) if q["expect_keywords"] else None
 
+    is_refusal = "没有相关内容" in reply and len(reply) < 30
     for name, fn, args in (
         ("faith", evaluator.judge_faithfulness, (q["question"], reply, [h["text"] for h in hits])),
         ("relev", evaluator.judge_relevance, (q["question"], reply)),
     ):
+        if name == "relev" and is_refusal:
+            row[name] = "拒答"
+            continue
         try:
             judged = fn(*args)
         except NotImplementedError:
