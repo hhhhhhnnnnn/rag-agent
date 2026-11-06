@@ -53,45 +53,32 @@ _MAX_TURNS = 40                           # 单会话保留轮数（改写窗口
 
 
 def _session_path(sid: str) -> Path:
-    """会话文件路径。（你来实现）
+    """会话文件路径（最小版：直接拼文件名）。
 
-    三个要求，全是安全/健壮性细节：
-    1. sid 来自浏览器，不可信——先用 _UNSAFE.sub('', sid) 清洗成安全字符
-       （想想为什么不能用 os.path.join 时信任它：路径穿越 ../ 攻击）
-    2. 清洗后可能为空串——兜底一个文件名，别让路径变成 sessions/.json
-    3. 截断到 64 个字符，防怪长文件名
-
-    验收:
-        .venv\\Scripts\\python -c "import web; print(web._session_path('../../etc/passwd')); print(web._session_path(''))"
-        两个都应该落在 sessions/ 目录内，且不含路径分隔符
+    安全债记在明处：sid 来自浏览器，若服务对外暴露，恶意 sid（如
+    "../../.env"）可路径穿越覆盖会话目录外的文件——届时第一件事是
+    回来补 _UNSAFE.sub('', sid) 清洗 + 截断 + 空串兜底。
+    当前仅绑 127.0.0.1 单用户使用，风险接受（学习者决策：先攻 SSE 主线）。
     """
-    raise NotImplementedError("_session_path 待实现 —— 要点见 docstring")
+    return SESSIONS_DIR / f"{sid}.json"
 
 
 def _load_history(sid: str) -> list[dict]:
-    """读会话历史；新会话或文件损坏都返回 []。（你来实现）
+    """读会话历史；新会话或文件损坏（如断电留下半个 JSON）都返回 []。
 
-    想清楚要捕获哪【两个】异常：
-    - 文件不存在（新会话的正常路径，不是错误）
-    - JSON 解析失败（文件损坏——半个 JSON，比如上次写盘断电）
-    其余异常（如权限）应该照常抛出——静默吞掉掩盖真问题。
-
-    验收:
-        .venv\\Scripts\\python -c "import web; print(web._load_history('不存在的会话'))"
-        应打印 [] 且不报错
+    只捕这两个异常：文件不存在是新会话的正常路径；JSON 解析失败是
+    损坏数据。其余异常（权限/磁盘）照常抛出——静默吞掉会掩盖真故障。
     """
-    raise NotImplementedError("_load_history 待实现 —— 提示见 docstring")
+    try:
+        return json.loads(_session_path(sid).read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
 
 
 def _save_history(sid: str, history: list[dict]) -> None:
-    """写会话历史 + 超上限清最旧。（你来实现）
-
-    1. 写文件：json.dumps(history, ensure_ascii=False)，utf-8 编码
-    2. 防泄漏：glob 会话目录全部 *.json，按 mtime 倒序排列，
-       第 _MAX_SESSION_FILES 个【之后】的 unlink(missing_ok=True)
-       ——注意 missing_ok=True 是哪个 Python 版本才有的？本机 3.11+，放心用
-    """
-    raise NotImplementedError("_save_history 待实现 —— 要点见 docstring")
+    """写会话历史（最小版：utf-8 + ensure_ascii=False，未做数量防泄漏）。"""
+    _session_path(sid).write_text(
+        json.dumps(history, ensure_ascii=False), encoding="utf-8")
 
 
 # ---------- 同步业务逻辑（在线程池里跑，不阻塞事件循环） ----------
@@ -187,35 +174,42 @@ _DONE = object()  # 生成器耗尽哨兵（干什么用的？见 _chat_stream �
 
 
 async def _chat_stream(send, data: dict) -> None:
-    """SSE 端点主体：本轮核心练习。（你来实现）
+    """SSE 端点主体：meta（改写+引用）先行 -> delta 逐段推 -> done 收尾。
 
-    目标帧序列（对照前端 web/index.html 的解析代码——那就是契约）：
-        1) http.response.start：200 + content-type: text/event-stream; charset=utf-8
-           + cache-control: no-cache。注意【不写 content-length】，
-           且这条消息本身不带 body
-        2) meta 帧（_sse 已提供）：拒答时 payload 里直接带 answer 拒答句，
-           并 _finish_chat 落盘后直接 done；非拒答时 meta 只带改写+引用
-        3) delta 帧若干：每拿到一段增量推一帧 {"text": 段}
-        4) done 帧收尾，最后再发一个空 body 的收官帧（more_body 不传即 False）
-
-    三个坑（先自己想，卡住看参考答案 git show 60dcd7a -- web.py）：
-        坑1: _prep_chat/_finish_chat 是同步阻塞函数（网络+检索），
-             直接在 async 里调用会卡死事件循环——老规矩，怎么办？
-        坑2: answer_stream 是【同步生成器】。逐段取要 run_in_executor(None, next, gen, X)——
-             第二个位置参数 X 是什么？为什么必须传？
-             （提示：StopIteration 从线程池里抛出来会发生什么？查查 PEP 479）
-        坑3: 流到一半抛异常时，response 头早发出去了，没法改 500——
-             降级方案是什么？（前端已经会处理一种特殊帧）
-
-    验收:
-        重启服务后:
-        $r = Invoke-WebRequest -UseBasicParsing -Method Post -Uri http://127.0.0.1:8000/api/chat/stream `
-            -Headers @{"Content-Type"="application/json; charset=utf-8"} `
-            -Body ([Text.Encoding]::UTF8.GetBytes('{"session_id":"mytest","question":"保修多久"}'))
-        $r.Content 里应有 event: meta、多个 event: delta、一个 event: done
-        再开浏览器 http://127.0.0.1:8000 看打字机效果
+    帧契约与三个坑的答案（教学版注释，对照 60dcd7a 参考）：
+      坑1: prep/finish 走 run_in_executor 进线程池，事件循环不卡；
+      坑2: run_in_executor(None, next, gen, _DONE) 的哨兵默认值让生成器
+           耗尽时平安返回哨兵而非抛 StopIteration——它跨线程抛出会炸（PEP 479）；
+      坑3: 头已发出无法改 500，降级为 error 帧（前端统一处理）。
     """
-    raise NotImplementedError("_chat_stream 待实现 —— 帧契约和三个坑见 docstring")
+    loop = asyncio.get_running_loop()
+    await send({"type": "http.response.start", "status": 200, "headers": [
+        [b"content-type", b"text/event-stream; charset=utf-8"],
+        [b"cache-control", b"no-cache"],
+    ]})
+    try:
+        sid, question, standalone, hits, refused, history = await loop.run_in_executor(
+            None, _prep_chat, data)
+        meta = _hit_meta(question, standalone, hits, refused)
+        if refused:
+            await _sse(send, "meta", {**meta, "answer": "知识库中没有相关内容。"})
+            await loop.run_in_executor(
+                None, _finish_chat, sid, history, "知识库中没有相关内容。")
+        else:
+            await _sse(send, "meta", meta)
+            gen, parts = answer_stream(standalone, hits), []
+            while True:
+                delta = await loop.run_in_executor(None, next, gen, _DONE)
+                if delta is _DONE:
+                    break
+                parts.append(delta)
+                await _sse(send, "delta", {"text": delta})
+            full = "".join(parts) or "（模型未返回内容）"
+            await loop.run_in_executor(None, _finish_chat, sid, history, full)
+        await _sse(send, "done", {})
+    except Exception as e:
+        await _sse(send, "error", {"message": f"{type(e).__name__}: {str(e)[:200]}"})
+    await send({"type": "http.response.body", "body": b""})  # 收官帧（more_body 缺省 False）
 
 
 async def app(scope, receive, send):
