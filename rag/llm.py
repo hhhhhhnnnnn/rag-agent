@@ -43,21 +43,18 @@ def chat_stream(
     settings: Settings | None = None,
     temperature: float = 0.2,
 ):
-    """流式版 chat：逐段 yield 增量文本，调用方拼接。
+    """流式版 chat：逐段 yield 增量文本，调用方拼接。（你来实现）
 
-    SSE 时代的底层通道：边生成边吐字，用户体验从"等 8 秒看全文"
-    变成"0.5 秒开始看它写"。网络中断抛的异常与 chat 相同，交给上层降级。
+    实现要点：照着上面的 chat() 抄骨架，只改三处——
+    1. create(...) 多传一个 stream=True；返回的不再是响应对象，而是事件迭代器
+    2. 每个事件的增量文本在 event.choices[0].delta.content，
+       注意它可能是 None（比如首事件只带 role），None 要跳过
+    3. 每拿到一段就 yield ——这是生成器函数，不要攒完再 return
+
+    验收（终端能看见一段段蹦出来就对了）:
+        .venv\\Scripts\\python -c "from rag.llm import chat_stream; [print(p, end='', flush=True) for p in chat_stream([{'role':'user','content':'用二十字介绍蓝牙'}])]"
     """
-    s = settings or get_settings()
-    stream = _client(s).chat.completions.create(
-        model=s.chat_model,
-        messages=messages,  # type: ignore[arg-type]
-        temperature=temperature,
-        stream=True,
-    )
-    for event in stream:  # 每个事件携带一小段增量（delta.content 可能为 None）
-        if event.choices and event.choices[0].delta.content:
-            yield event.choices[0].delta.content
+    raise NotImplementedError("chat_stream 待实现 —— 要点见 docstring")
 
 
 def embed(texts: list[str], *, settings: Settings | None = None) -> list[list[float]]:

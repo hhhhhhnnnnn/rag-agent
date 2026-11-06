@@ -68,9 +68,13 @@ def answer(question: str, hits: list[dict]) -> str:
 
 
 def answer_stream(question: str, hits: list[dict]):
-    """流式版 answer：逐段 yield 增量文本（SSE 用）。
+    """流式版 answer：逐段 yield 增量文本（SSE 用）。（你来实现）
 
-    注意：流式没有"降级到拒答句"的机会——拒答判断在上游检索闸
-    （web.py 里 hits 为空/低分时根本不会走到这里）。
+    两行的事：prompt 组装复用 build_prompt()，底层换 chat_stream。
+    Python 里"把一个生成器的产出原样转手"有个专用语法，想想是哪个。
+    （提示：不是 for 循环里 yield——那也行，但啰嗦）
+
+    验收:
+        .venv\\Scripts\\python -c "from rag.retriever import Retriever; from rag.generator import answer_stream; r = Retriever(); hits = r.search('蓝牙版本', top_k=3); [print(p, end='', flush=True) for p in answer_stream('蓝牙版本', hits)]"
     """
-    yield from chat_stream(build_prompt(question, hits), temperature=0.2)
+    raise NotImplementedError("answer_stream 待实现 —— 提示见 docstring")
