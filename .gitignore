@@ -14,3 +14,6 @@ db/chroma/
 
 # 评估报告产物（问题集 questions.json 入库，报告不入库）
 eval/reports/
+
+# 会话历史落盘（v0.4.1：属于用户本地数据）
+sessions/

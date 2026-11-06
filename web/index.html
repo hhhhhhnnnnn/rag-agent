@@ -97,31 +97,6 @@ function bubbleUser(text) {
   addMsg(d);
 }
 
-function bubbleBot(data) {
-  const d = document.createElement("div");
-  d.className = "bot msg" + (data.refused ? " refused" : "");
-  if (data.rewrite) {
-    const r = document.createElement("div");
-    r.className = "rewrite"; r.textContent = "改写 " + data.rewrite;
-    d.appendChild(r);
-  }
-  const body = document.createElement("div");
-  body.textContent = data.answer;
-  d.appendChild(body);
-  if (data.hits && data.hits.length) {
-    const cites = document.createElement("div");
-    cites.className = "cites";
-    data.hits.forEach((h, i) => {
-      const c = document.createElement("span");
-      c.className = "cite";
-      c.textContent = `[${i + 1}] ${shortName(h.source)} 第${h.chunk_index + 1}块 · ${h.score}`;
-      cites.appendChild(c);
-    });
-    d.appendChild(cites);
-  }
-  addMsg(d);
-}
-
 function shortName(s) { return s.length > 18 ? s.slice(0, 16) + "…" : s; }
 
 async function post(path, body) {
@@ -134,22 +109,76 @@ async function post(path, body) {
   return data;
 }
 
+// SSE 流式问答：meta（改写+引用）先行，delta 逐段追加，done 收尾
 async function ask() {
   const text = input.value.trim();
   if (!text || sendBtn.disabled) return;
   errBox.textContent = "";
   input.value = "";
   bubbleUser(text);
-  const pend = document.createElement("div");
-  pend.className = "pending"; pend.textContent = "检索中…";
-  addMsg(pend);
   sendBtn.disabled = true;
+
+  const bot = document.createElement("div");
+  bot.className = "bot msg";
+  const body = document.createElement("div");
+  body.className = "pending"; body.textContent = "检索中…";
+  addMsg(bot);
+
   try {
-    const data = await post("/api/chat", { session_id: sid, question: text });
-    pend.remove();
-    bubbleBot(data);
+    const resp = await fetch("/api/chat/stream", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: sid, question: text }),
+    });
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "", full = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf("\n\n")) >= 0) {          // SSE 帧以空行分隔
+        const frame = buf.slice(0, i); buf = buf.slice(i + 2);
+        let ev = "message", dt = "";
+        for (const line of frame.split("\n")) {
+          if (line.startsWith("event: ")) ev = line.slice(7);
+          else if (line.startsWith("data: ")) dt += line.slice(6);
+        }
+        if (ev === "meta") {
+          const m = JSON.parse(dt);
+          if (m.rewrite) {
+            const r = document.createElement("div");
+            r.className = "rewrite"; r.textContent = "改写 " + m.rewrite;
+            bot.appendChild(r);
+          }
+          body.className = ""; body.textContent = m.refused ? m.answer : "";
+          if (m.refused) bot.classList.add("refused");
+          bot.appendChild(body);
+          if (m.hits && m.hits.length) {
+            const cites = document.createElement("div");
+            cites.className = "cites";
+            m.hits.forEach((h, k) => {
+              const c = document.createElement("span");
+              c.className = "cite";
+              c.textContent = `[${k + 1}] ${shortName(h.source)} 第${h.chunk_index + 1}块 · ${h.score}`;
+              cites.appendChild(c);
+            });
+            bot.appendChild(cites);
+          }
+        } else if (ev === "delta") {
+          full += JSON.parse(dt).text;
+          body.textContent = full;
+          document.getElementById("chat").scrollTop = 1e9;
+        } else if (ev === "error") {
+          throw new Error(JSON.parse(dt).message);
+        }
+      }
+    }
   } catch (e) {
-    pend.remove();
+    if (!body.textContent || body.textContent === "检索中…") body.textContent = "";
+    body.className = ""; body.textContent += "（出错了）";
     errBox.textContent = "请求失败: " + e.message;
   } finally {
     sendBtn.disabled = false;

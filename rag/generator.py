@@ -20,7 +20,7 @@
 
 from __future__ import annotations
 
-from .llm import chat
+from .llm import chat, chat_stream
 
 SYSTEM_PROMPT = """\
 你是一个严谨的文档问答助手。请严格遵守：
@@ -65,3 +65,12 @@ def build_prompt(question: str, hits: list[dict]) -> list[dict]:
 def answer(question: str, hits: list[dict]) -> str:
     """端到端：组装 prompt -> 调用 LLM -> 返回回答文本。"""
     return chat(build_prompt(question, hits), temperature=0.2)
+
+
+def answer_stream(question: str, hits: list[dict]):
+    """流式版 answer：逐段 yield 增量文本（SSE 用）。
+
+    注意：流式没有"降级到拒答句"的机会——拒答判断在上游检索闸
+    （web.py 里 hits 为空/低分时根本不会走到这里）。
+    """
+    yield from chat_stream(build_prompt(question, hits), temperature=0.2)

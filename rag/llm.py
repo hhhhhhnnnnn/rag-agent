@@ -37,6 +37,29 @@ def chat(
     return resp.choices[0].message.content or ""
 
 
+def chat_stream(
+    messages: list[dict],
+    *,
+    settings: Settings | None = None,
+    temperature: float = 0.2,
+):
+    """流式版 chat：逐段 yield 增量文本，调用方拼接。
+
+    SSE 时代的底层通道：边生成边吐字，用户体验从"等 8 秒看全文"
+    变成"0.5 秒开始看它写"。网络中断抛的异常与 chat 相同，交给上层降级。
+    """
+    s = settings or get_settings()
+    stream = _client(s).chat.completions.create(
+        model=s.chat_model,
+        messages=messages,  # type: ignore[arg-type]
+        temperature=temperature,
+        stream=True,
+    )
+    for event in stream:  # 每个事件携带一小段增量（delta.content 可能为 None）
+        if event.choices and event.choices[0].delta.content:
+            yield event.choices[0].delta.content
+
+
 def embed(texts: list[str], *, settings: Settings | None = None) -> list[list[float]]:
     """把一批文本向量化，返回与输入顺序一致的向量列表（超长自动分批）。"""
     s = settings or get_settings()
