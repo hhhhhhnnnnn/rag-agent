@@ -144,7 +144,8 @@ def main() -> None:
     report = {"ts": time.strftime("%Y-%m-%d %H:%M:%S"), "git": git_sha, "full": full,
               "settings": {"chunk_size": s.chunk_size, "top_k": s.top_k,
                            "sim_threshold": s.sim_threshold, "recall_n": s.recall_n,
-                           "rerank_candidates": s.rerank_candidates},
+                           "rerank_candidates": s.rerank_candidates,
+                           "rrf_w_bm": s.rrf_w_bm},
               "aggregate": agg, "rows": rows}
     out_dir = ROOT / "eval" / "reports"
     out_dir.mkdir(parents=True, exist_ok=True)
