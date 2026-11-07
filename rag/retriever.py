@@ -158,10 +158,13 @@ class _BM25:
 # 阶段 3: RRF 融合
 # ============================================================
 
-def _rrf_fuse(vec_hits: list[dict], bm_hits: list[dict], k: int = 60) -> list[dict]:
+def _rrf_fuse(vec_hits: list[dict], bm_hits: list[dict], k: int = 60,
+              w_vec: float = 1.0, w_bm: float = 1.0) -> list[dict]:
     """Reciprocal Rank Fusion：把两路命中列表融成一个有序列表。
 
-    公式: 每个文档 score = Σ 1/(k + rank_i)，k=60 是社区常用值。
+    公式: 每个文档 score = Σ w_channel/(k + rank_i)，k=60 是社区常用值。
+    w_bm 是通道权重实验旋钮（RRF_W_BM 环境变量）：>1 偏向精确词命中，
+    <1 偏向语义；默认 1.0 等权。
     文档唯一键建议用 (source, chunk_index) 元组。
     双通道都命中的文档两项相加，自然排最前——这就是 RRF 的全部。
 
@@ -171,10 +174,10 @@ def _rrf_fuse(vec_hits: list[dict], bm_hits: list[dict], k: int = 60) -> list[di
     """
     fused = {}
     pool={}
-    for hits in (vec_hits,bm_hits):
+    for hits, w in ((vec_hits, w_vec), (bm_hits, w_bm)):
         for rank , h in enumerate(hits,start=1):
             key=(h["source"],h["chunk_index"])
-            fused[key]=fused.get(key,0)+1.0/(k+rank)
+            fused[key]=fused.get(key,0)+w/(k+rank)
             pool[key]=h
 
     ranked=sorted(fused.items(),key=lambda kv:kv[1],reverse=True)
@@ -232,8 +235,9 @@ class Retriever:
         vec_hits = self._vector_search(query, self.settings.recall_n)
         bm_hits = self._bm25_search(query, self.settings.recall_n)
 
-        # ② RRF 融合，取前 rerank_candidates 名作为精排候选
-        fused = _rrf_fuse(vec_hits, bm_hits)[: self.settings.rerank_candidates]
+        # ② RRF 融合（w_bm 可经 RRF_W_BM 环境变量调权），取前 rerank_candidates 名作为精排候选
+        fused = _rrf_fuse(vec_hits, bm_hits, w_bm=self.settings.rrf_w_bm)[
+            : self.settings.rerank_candidates]
 
         # ③ 云端精排；ranked 为 None 说明 rerank 失败 -> 降级纯向量
         ranked = rerank(query, [h["text"] for h in fused], top_n=top_k)

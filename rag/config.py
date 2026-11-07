@@ -46,6 +46,7 @@ class Settings:
     recall_n: int
     rerank_model: str
     rerank_candidates: int
+    rrf_w_bm: float
     db_dir: Path
     data_dir: Path
     collection: str
@@ -82,6 +83,7 @@ def get_settings() -> Settings:
         recall_n=int(os.environ.get("RECALL_N", "10")),
         rerank_model=os.environ.get("RERANK_MODEL", "qwen3.7-text-rerank"),
         rerank_candidates=int(os.environ.get("RERANK_CANDIDATES", "8")),
+        rrf_w_bm=float(os.environ.get("RRF_W_BM", "1.0")),
         db_dir=ROOT / os.environ.get("DB_DIR", "db/chroma"),
         data_dir=ROOT / os.environ.get("DATA_DIR", "data"),
         collection=os.environ.get("COLLECTION_NAME", "docs"),
