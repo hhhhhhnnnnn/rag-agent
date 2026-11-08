@@ -117,6 +117,13 @@
     "expect_source": ["sample.md#chunk2","sample.md#chunk7"],
     "expect_keywords": [],
     "should_refuse": false
-  }
+  },
+  { "id": "q18", "question": "比星尘音箱X1便宜的型号，保修多久？",
+  "expect_source": ["星尘家族产品对比.md#chunk2", "星尘家族产品对比.md#chunk3"],
+  "expect_keywords": ["12"], "should_refuse": false },
+  { "id": "q19", "question": "配网失败时长按音箱几秒？",
+  "expect_source": "星尘之声App常见问题.md#chunk2",
+  "expect_keywords": ["6"], "should_refuse": false }
+
 
 ]
