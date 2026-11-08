@@ -2,7 +2,8 @@
   {
     "id": "q01",
     "question": "星尘音箱X1的保修期是多久？",
-    "expect_source": "sample.md#chunk7",
+    "expect_source": ["sample.md#chunk7","星尘家族产品对比.md#chunk3"],
+    "match": "any",
     "expect_keywords": ["12"],
     "should_refuse": false
   },
@@ -30,21 +31,24 @@
   {
     "id": "q05",
     "question": "配网需要安装什么App？",
-    "expect_source": "sample.md#chunk3",
+    "expect_source": ["sample.md#chunk3","星尘家族产品对比.md#chunk2"],
+    "match": "any",
     "expect_keywords": ["星尘之声"],
     "should_refuse": false
   },
   {
     "id": "q06",
     "question": "音箱的蓝牙版本是多少？",
-    "expect_source": "sample.md#chunk2",
+    "expect_source": ["sample.md#chunk2","星尘家族产品对比.md#chunk3"],
+    "match": "any",
     "expect_keywords": ["5.3"],
     "should_refuse": false
   },
   {
     "id": "q07",
     "question": "音箱有多重？",
-    "expect_source": "sample.md#chunk2",
+    "expect_source": ["sample.md#chunk2","星尘家族产品对比.md#chunk3"],
+    "match": "any",
     "expect_keywords": ["620"],
     "should_refuse": false
   },

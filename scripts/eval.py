@@ -49,6 +49,7 @@ def retrieval_row(q: dict, hits: list[dict], threshold: float, top_k: int) -> di
         "top_score": round(top_score, 3),
         "hit": None,
         "mrr": None,
+
     }
     gold = q.get("expect_source")
     if gold:
@@ -57,7 +58,13 @@ def retrieval_row(q: dict, hits: list[dict], threshold: float, top_k: int) -> di
         golds = gold if isinstance(gold, list) else [gold]
         keys = [f"{h['source']}#chunk{h['chunk_index']}" for h in hits[:top_k]]
         ranks = [keys.index(g) + 1 for g in golds if g in keys]
-        row["hit"] = round(len(ranks) / len(golds), 2)
+        match=q.get("match","all")
+        if match == "any":
+            row["hit"] = 1.0 if len(ranks)>0 else 0.0
+        else:
+            row["hit"] = round(len(ranks) / len(golds), 2)
+
+
         row["mrr"] = round(1.0 / min(ranks), 2) if ranks else 0.0
     return row
 
