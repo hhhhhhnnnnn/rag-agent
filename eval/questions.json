@@ -128,20 +128,19 @@
   { "id": "q19", "question": "配网失败时长按音箱几秒？",
   "expect_source": "星尘之声App常见问题.md#chunk2",
   "expect_keywords": ["6"], "should_refuse": false },
-  { "id": "q20", "question": "最便宜的支持 5GHz Wi-Fi 的音箱，保修多久？",
-  "expect_source": ["星尘家族产品对比.md#chunk3", "sample.md#chunk7"],
-  "match": "any", "expect_keywords": ["X1", "12"], "should_refuse": false },
-   { "id": "q21", "question": "唯一支持 NFC 的音箱售价多少钱",
-  "expect_source": ["星尘家族产品对比.md#chunk1"],
-  "match": "any", "expect_keywords": ["599"], "should_refuse": false },
-  { "id": "q22", "question": "不支持 NFC 的音箱中最重的那款，保修多久？",
-  "expect_source": ["星尘家族产品对比.md#chunk3", "sample.md#chunk7"],
-  "match": "any", "expect_keywords": ["X1", "12"], "should_refuse": false },
+  { "id": "q20", "question": "全库最便宜的 Wi-Fi 双频设备售价多少元？",
+  "expect_source": "星尘智能家居-智能插座.md#chunk5",
+  "expect_keywords": ["81"], "should_refuse": false },
+   { "id": "q21", "question": "支持 NFC 的最便宜的音箱售价多少元？",
+  "expect_source": "星尘智能家居-智能音箱.md#chunk5",
+  "match": "any", "expect_keywords": ["362"], "should_refuse": false },
+  { "id": "q22", "question": "不支持 NFC 的产品里最重的是哪个？多重？",
+  "expect_source": "星尘智能家居-智能影音.md#chunk2",
+  "expect_keywords": ["声场 A2", "1276"], "should_refuse": false },
   { "id": "q23", "question": "注册会员后保修最长的音箱，重量是多少?",
   "expect_source": ["星尘家族产品对比.md#chunk1", "sample.md#chunk7"],
-  "match": "any", "expect_keywords": ["780"], "should_refuse": false }
-
-
-
-
+  "match": "any", "expect_keywords": ["780"], "should_refuse": false },
+  { "id": "q24", "question": "支持 NFC 一碰配对的产品一共有几款？",
+  "expect_source": ["星尘智能家居-智能安防.md#chunk7","星尘智能家居-智能音箱.md#chunk5","星尘智能家居-智能音箱.md#chunk3","星尘智能家居-智能影音.md#chunk9","星尘智能家居-智能音箱.md#chunk13","星尘智能家居-智能影音.md#chunk10","星尘智能家居-智能影音.md#chunk11","星尘智能家居-智能音箱.md#chunk7","星尘智能家居-智能音箱.md#chunk8","星尘智能家居-智能音箱.md#chunk11","星尘智能家居-智能影音.md#chunk4","星尘智能家居-智能影音.md#chunk6","星尘智能家居-智能影音.md#chunk12"],
+  "match": "all", "expect_keywords": ["13"], "should_refuse": false }
 ]
