@@ -320,3 +320,18 @@ class Retriever:
             {"text": self._bm25_docs[i], "score": float(scores[i]), **self._bm25_metas[i]}
             for i in ranked
         ]
+
+    def get_by_source(self, source: str) -> list[dict]:
+        """v0.6 扫描层专用：按文件名整取该文档的全部块（浏览，不是搜索）。
+
+        聚合题要"读完整个货架"——排序通道（向量/BM25）天生与"全都要"作对
+        （负锚挤压 + 排序天花板），按 source 直取是构造性完美召回，零 embed 成本。
+        score 统一 0.0：这些块不参与池内排序竞争，顺序按 chunk_index 原文顺序。
+        """
+        data = self.collection.get(where={"source": source},
+                                   include=["documents", "metadatas"])
+        hits = [
+            {"text": doc, "score": 0.0, **meta}
+            for doc, meta in zip(data.get("documents") or [], data.get("metadatas") or [])
+        ]
+        return sorted(hits, key=lambda h: h["chunk_index"])
