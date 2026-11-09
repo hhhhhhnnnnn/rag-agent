@@ -103,6 +103,40 @@ def gen_row(q: dict, hits: list[dict], row: dict) -> dict:
     return row
 
 
+def agent_gen_row(q: dict, retriever, row: dict) -> dict:
+    """--agent --full 阶段：走 v0.6 混合路由。agg 路径墓碑未拔时降级标注，不崩整批。"""
+    from rag.agent import answer_agent
+
+    try:
+        result = answer_agent(q["question"], retriever=retriever)
+        reply = result["answer"]
+        row["route"] = result["route"]
+        row["sub_queries"] = result["sub_queries"]
+        contexts = result["contexts"]
+    except NotImplementedError as e:
+        reply = f"（AGG 路径未实现: {e}）"
+        row["route"] = "agg(墓碑)"
+        contexts = []
+    row["answer"] = reply
+    row["keyword_ok"] = all(k in reply for k in q["expect_keywords"]) if q["expect_keywords"] else None
+
+    from rag import evaluator
+    for name, fn, args in (
+        ("faith", evaluator.judge_faithfulness, (q["question"], reply, contexts)),
+        ("relev", evaluator.judge_relevance, (q["question"], reply)),
+    ):
+        if not contexts and name == "faith":
+            row[name] = None
+            continue
+        try:
+            judged = fn(*args)
+        except Exception:
+            row[name] = None
+            continue
+        row[name] = judged["score"] if judged else None
+    return row
+
+
 def mean(rows: list[dict], key: str) -> float | None:
     vals = [r[key] for r in rows if isinstance(r.get(key), (int, float))]
     return round(sum(vals) / len(vals), 2) if vals else None
@@ -110,23 +144,28 @@ def mean(rows: list[dict], key: str) -> float | None:
 
 def main() -> None:
     full = "--full" in sys.argv
+    agent_mode = "--agent" in sys.argv
     s = get_settings()
     retriever = Retriever()
     rows: list[dict] = []
 
-    print(f"模式: {'全量(检索+生成+judge)' if full else '仅检索(零LLM成本)'}  |  阈值 {s.sim_threshold}  top_k {s.top_k}")
+    mode = '全量(检索+生成+judge)' if full else '仅检索(零LLM成本)'
+    if full and agent_mode:
+        mode += ' + v0.6混合路由'
+    print(f"模式: {mode}  |  阈值 {s.sim_threshold}  top_k {s.top_k}")
     print("-" * 76)
     for q in load_questions():
         hits = retriever.search(q["question"], top_k=s.top_k)
         row = retrieval_row(q, hits, s.sim_threshold, s.top_k)
         if full and not row["refused"]:
-            row = gen_row(q, hits, row)
+            row = agent_gen_row(q, retriever, row) if agent_mode else gen_row(q, hits, row)
         rows.append(row)
         hit_s = "-" if row["hit"] is None else str(row["hit"])
         mrr_s = "-" if row["mrr"] is None else f"{row['mrr']:.2f}"
         extra = ""
         if full and not row["refused"]:
-            extra = f"  词:{row.get('keyword_ok','-')}  忠实:{row.get('faith','-')}  相关:{row.get('relev','-')}"
+            route_s = f"  路:{row['route']}" if agent_mode else ""
+            extra = f"  词:{row.get('keyword_ok','-')}  忠实:{row.get('faith','-')}  相关:{row.get('relev','-')}{route_s}"
         print(f"{row['id']}  {'拒' if row['refused'] else '答'}{'✓' if row['refusal_ok'] else '✗'}"
               f"  hit:{hit_s}  mrr:{mrr_s}  top:{row['top_score']:.3f}{extra}")
 
@@ -149,6 +188,7 @@ def main() -> None:
     except Exception:
         git_sha = "?"
     report = {"ts": time.strftime("%Y-%m-%d %H:%M:%S"), "git": git_sha, "full": full,
+              "agent": agent_mode,
               "settings": {"chunk_size": s.chunk_size, "top_k": s.top_k,
                            "sim_threshold": s.sim_threshold, "recall_n": s.recall_n,
                            "rerank_candidates": s.rerank_candidates,
