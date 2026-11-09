@@ -127,7 +127,21 @@
   "expect_keywords": ["12"], "should_refuse": false },
   { "id": "q19", "question": "配网失败时长按音箱几秒？",
   "expect_source": "星尘之声App常见问题.md#chunk2",
-  "expect_keywords": ["6"], "should_refuse": false }
+  "expect_keywords": ["6"], "should_refuse": false },
+  { "id": "q20", "question": "最便宜的支持 5GHz Wi-Fi 的音箱，保修多久？",
+  "expect_source": ["星尘家族产品对比.md#chunk3", "sample.md#chunk7"],
+  "match": "any", "expect_keywords": ["X1", "12"], "should_refuse": false },
+   { "id": "q21", "question": "唯一支持 NFC 的音箱售价多少钱",
+  "expect_source": ["星尘家族产品对比.md#chunk1"],
+  "match": "any", "expect_keywords": ["599"], "should_refuse": false },
+  { "id": "q22", "question": "不支持 NFC 的音箱中最重的那款，保修多久？",
+  "expect_source": ["星尘家族产品对比.md#chunk3", "sample.md#chunk7"],
+  "match": "any", "expect_keywords": ["X1", "12"], "should_refuse": false },
+  { "id": "q23", "question": "注册会员后保修最长的音箱，重量是多少?",
+  "expect_source": ["星尘家族产品对比.md#chunk1", "sample.md#chunk7"],
+  "match": "any", "expect_keywords": ["780"], "should_refuse": false }
+
+
 
 
 ]
