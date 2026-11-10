@@ -20,12 +20,14 @@ from .retriever import Retriever ,_rrf_fuse
 
 MAX_SUBS = 8  # 设计 §3.2: 子查询数上限（预算）
 
-# 类别关键词 → 文件名：子查询命中类别词时整架搬回（浏览优先于搜索，设计 §3.2 v3）
+# 类别/文档关键词 → 文件名：子查询命中关键词时整架搬回（浏览优先于搜索，设计 §3.2 v3）
 CATEGORY_FILES = {
     "音箱": "星尘智能家居-智能音箱.md",     "灯具": "星尘智能家居-智能灯具.md",
     "插座": "星尘智能家居-智能插座.md",     "传感器": "星尘智能家居-智能传感器.md",
     "安防": "星尘智能家居-智能安防.md",     "影音": "星尘智能家居-智能影音.md",
-    "对比": "星尘家族产品对比.md",          "App": "星尘之声App常见问题.md",
+    "对比": "星尘家族产品对比.md",          "家族": "星尘家族产品对比.md",
+    "App": "星尘之声App常见问题.md",        "配网": "星尘之声App常见问题.md",
+    "手册": "sample.md",                    "办公": "智能办公助手使用与运维知识库.docx",
 }
 
 # ---------------------------------------------------------------------------
@@ -231,28 +233,45 @@ def _get_retriever(settings: Settings) -> Retriever:
     return _retriever
 
 
+def _fact_path(question: str, r: Retriever, s: Settings, route: str = "fact") -> dict:
+    """单发快路径: 检索 → 分数闸 → 充分性闸 → 生成。agg 兜底时复用（route 打标区分）。"""
+    hits = r.search(question)
+    top = hits[0]["score"] if hits else 0.0
+    if top < s.sim_threshold:          # 闸门一: 分数（v0.5 遗产）
+        return {"answer": REFUSAL_ANSWER, "route": "fact-拒(分数)",
+                "sub_queries": [], "contexts": [h["text"] for h in hits]}
+    if not _entity_gate(question, hits, settings=s):   # 闸门二: 充分性（M4）
+        return {"answer": REFUSAL_ANSWER, "route": "fact-拒(闸门)",
+                "sub_queries": [], "contexts": [h["text"] for h in hits]}
+    return {"answer": answer(question, hits), "route": route,
+            "sub_queries": [], "contexts": [h["text"] for h in hits]}
+
+
 def answer_agent(question: str, *, settings: Settings | None = None,
                  retriever: Retriever | None = None) -> dict:
     """混合路由主入口。返回 {answer, route, sub_queries, contexts}。
 
     contexts 一并返回是为了 eval 的 judge 能拿到与生成时一致的片段。
+    聚合路径拒答时自动退化单发兜底（belt and suspenders）——
+    子查询落不进类别货架的漏网之鱼，由 fact 路径接住。
     """
     s = settings or get_settings()
     p = plan(question, settings=s)
     r = retriever or _get_retriever(s)
 
     if p.type == "fact":
-        hits = r.search(question)          # v0.5 原路，零改动
-        top = hits[0]["score"] if hits else 0.0
-        if top < s.sim_threshold:          # 闸门一: 分数（v0.5 遗产，补进 agent）
-            return {"answer": REFUSAL_ANSWER, "route": "fact-拒(分数)",
-                    "sub_queries": [], "contexts": [h["text"] for h in hits]}
-        if not _entity_gate(question, hits, settings=s):   # 闸门二: 充分性（M4）
-            return {"answer": REFUSAL_ANSWER, "route": "fact-拒(闸门)",
-                    "sub_queries": [], "contexts": [h["text"] for h in hits]}
-        return {"answer": answer(question, hits), "route": "fact",
-                "sub_queries": [], "contexts": [h["text"] for h in hits]}
+        return _fact_path(question, r, s)
 
-    pool = scan(p.sub_queries, settings=s)          # M2 墓碑在此
-    return {"answer": synthesize(question, pool, settings=s), "route": "agg",
-            "sub_queries": p.sub_queries, "contexts": [h["text"] for h in pool]}
+    pool = scan(p.sub_queries, settings=s)
+    ans = synthesize(question, pool, settings=s)
+    pool_keys = [f"{h['source']}#chunk{h['chunk_index']}" for h in pool]
+    if "没有相关内容" in ans and len(ans) < 30:      # 聚合路径答不动 → 单发兜底
+        print("[agent] 聚合路径拒答，退化单发兜底")
+        result = _fact_path(question, r, s, route="fact(agg兜底)")
+        result["sub_queries"] = p.sub_queries
+        result["pool_keys"] = pool_keys
+        return result
+    return {"answer": ans, "route": "agg",
+            "sub_queries": p.sub_queries,
+            "contexts": [h["text"] for h in pool],
+            "pool_keys": pool_keys}

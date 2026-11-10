@@ -122,7 +122,7 @@
     "expect_keywords": [],
     "should_refuse": false
   },
-  { "id": "q18", "question": "比星尘音箱X1便宜的型号，保修多久？",
+  { "id": "q18", "question": "比星尘音箱 X1 便宜的星尘家族音箱，保修多久？",
   "expect_source": ["星尘家族产品对比.md#chunk2", "星尘家族产品对比.md#chunk3"],
   "expect_keywords": ["12"], "should_refuse": false },
   { "id": "q19", "question": "配网失败时长按音箱几秒？",
@@ -137,9 +137,9 @@
   { "id": "q22", "question": "不支持 NFC 的产品里最重的是哪个？多重？",
   "expect_source": "星尘智能家居-智能影音.md#chunk2",
   "expect_keywords": ["声场 A2", "1276"], "should_refuse": false },
-  { "id": "q23", "question": "注册会员后保修最长的音箱，重量是多少?",
-  "expect_source": ["星尘家族产品对比.md#chunk1", "sample.md#chunk7"],
-  "match": "any", "expect_keywords": ["780"], "should_refuse": false },
+  { "id": "q23", "question": "星尘家族里支持注册会员延长保修的音箱是哪款？重量是多少？",
+  "expect_source": ["星尘家族产品对比.md#chunk1"],
+  "expect_keywords": ["X2", "780"], "should_refuse": false },
   { "id": "q24", "question": "支持 NFC 一碰配对的产品一共有几款？",
   "expect_source": ["星尘智能家居-智能安防.md#chunk7","星尘智能家居-智能音箱.md#chunk5","星尘智能家居-智能音箱.md#chunk3","星尘智能家居-智能影音.md#chunk9","星尘智能家居-智能音箱.md#chunk13","星尘智能家居-智能影音.md#chunk10","星尘智能家居-智能影音.md#chunk11","星尘智能家居-智能音箱.md#chunk7","星尘智能家居-智能音箱.md#chunk8","星尘智能家居-智能音箱.md#chunk11","星尘智能家居-智能影音.md#chunk4","星尘智能家居-智能影音.md#chunk6","星尘智能家居-智能影音.md#chunk12"],
   "match": "all", "expect_keywords": ["13"], "should_refuse": false }

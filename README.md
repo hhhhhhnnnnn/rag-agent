@@ -1,6 +1,21 @@
 # RAG 问答智能体
 
-文档问答系统（v0.4）：Web 服务 + 多轮对话 + 查询改写 + 评估体系，底层为混合检索 + 云端精排，接阿里云百炼**业务空间专属端点**（OpenAI 兼容协议）。
+文档问答系统（v0.6）：Agentic 混合路由 + 评估体系 + Web 服务，底层为混合检索 + 云端精排，接阿里云百炼**业务空间专属端点**（OpenAI 兼容协议）。
+
+## Agentic 混合路由（v0.6）
+
+```
+question → 规划器（1次LLM：路由+分解一体，失败降级fact）
+             ├─ fact → search() 单发 → 分数闸 → 充分性闸 → 生成     快路径
+             └─ agg  → scan() 扫描执行器 → synthesize() 先列全集再答 慢路径
+```
+
+- **为什么需要**：121 块语料上，聚合题（"最便宜的双频设备""支持NFC的有几款"）单发全线翻车——top5 装不下候选全集、显式否定标签（"NFC：不支持"）反成最佳词汇匹配
+- **浏览优先于搜索**：类别子查询按文件整取（`get_by_source`，构造性完美召回、零 embed），语义路径仅兜底——"读完整个货架"不该问搜索引擎
+- **两道新闸门**：分数闸（v0.5 遗产补进 agent）+ 充分性闸（"片段能否直接回答"，治跨实体污染——音箱问题被影音产品的说明书骗走）
+- **专属指标**：`--agent` 模式下聚合题带**池召回率**（候选池对金标集合的覆盖率）——单发 0/13 → v0.6 13/13
+- **降级链**：规划失败 → fact 路径；聚合路径拒答 → 单发兜底。Agentic 层任何失败都退回 v0.5 行为，永不劣化
+- 设计文档：`docs/v0.6-设计.md`（含三次规格修订的失败存档）
 
 ## Web 服务（v0.4）
 
@@ -24,9 +39,9 @@
 | 关键词命中 | --full | 回答含期望关键词 |
 | 忠实度 / 相关性 | --full | LLM-as-judge 打分 1~5（量表锚点 + 只输出 JSON） |
 
-用法：`eval.py`（仅检索，零 LLM 成本）/ `eval.py --full`（全量）；报告落 `eval/reports/`（含设置快照 + git 版本）。**改参数前后各跑一次对比聚合分，从此优化从"感觉"变"数据"。**
+用法：`eval.py`（仅检索，零 LLM 成本）/ `eval.py --full`（全量）/ `eval.py --full --agent`（走 v0.6 混合路由，聚合题附池召回率）；报告落 `eval/reports/`（含设置快照 + git 版本）。**改参数前后各跑一次对比聚合分，从此优化从"感觉"变"数据"。**
 
-当前基线（12 题）：拒答 1.0 / hit 1.0 / MRR 1.0 / 关键词 1.0 / 忠实 5.0 / 相关 5.0。
+当前基线（24 题 / 121 块语料）：单发 关键词 0.79（聚合题 0/5）→ v0.6 混合路由 关键词 0.89（聚合题 4/5，q24 池召回 13/13）。
 
 ## 多轮对话（v0.3）
 
@@ -73,7 +88,8 @@ rag-agent/
 │   ├── rerank.py        # 云端 rerank 精排（DashScope 原生协议，失败自动降级）
 │   ├── rewriter.py      # 查询改写：多轮指代消解（失败退回原问题）
 │   ├── evaluator.py     # LLM-as-judge：忠实度/相关性打分（零 RAGAS 依赖）
-│   └── generator.py     # Prompt 组装与回答
+│   ├── generator.py     # Prompt 组装与回答
+│   └── agent.py         # v0.6 混合路由：规划器/扫描执行器/综合器/充分性闸门
 ├── scripts/
 │   ├── check_env.py     # 环境自检（版本/依赖/配置/API 连通性）
 │   ├── probe_qwen.py    # 探测工作空间可用模型（对话模型候选实测）
@@ -81,7 +97,8 @@ rag-agent/
 │   ├── ask_once.py      # 单发一问（显示命中块与分数，便于调试）
 │   ├── calibrate.py     # 阈值校准：批量问题只看检索分，不调 LLM
 │   ├── test_multiturn.py # v0.3 验收：四轮剧本测改写、指代消解与拒答闸
-│   ├── eval.py          # v0.5 评估：问题集跑批，检索指标+judge，报告落盘
+│   ├── eval.py          # v0.5 评估：问题集跑批，检索指标+judge，报告落盘（--agent 走 v0.6）
+│   ├── gen_corpus.py    # 合成规模语料生成器（种子固定可复现，90款/6类）
 │   └── dump_kb.py       # 打印库内全部切块（人工核对金标用）
 ├── eval/
 │   ├── questions.json   # 评估问题集（金标：expect_source/keywords/should_refuse）
@@ -107,7 +124,12 @@ rag-agent/
 .venv\Scripts\python scripts\test_multiturn.py        # 多轮改写验收剧本
 .venv\Scripts\python scripts\eval.py                  # 评估：仅检索指标（零成本）
 .venv\Scripts\python scripts\eval.py --full           # 评估：加生成+judge打分
+.venv\Scripts\python scripts\eval.py --full --agent   # 评估：v0.6 混合路由（聚合题附池召回率）
 ```
+
+## 注意事项（续）
+
+- **重建规模语料**：改 `scripts/gen_corpus.py` 参数后需重跑生成器 + `ingest.py`，且**聚合题金标要对照 `eval/scale_truth.json` 重新核对**——语料一变，"最/唯一"类题目前提会腐烂。
 
 ## 注意事项
 
@@ -128,3 +150,4 @@ rag-agent/
 | v0.3 | 查询改写 + 多轮对话（指代消解） | ✅ 完成 |
 | v0.4 | Web UI（裸 ASGI + uvicorn，零新增依赖；热重建索引） | ✅ 完成 |
 | v0.5 | 评估集 + 指标（检索 hit/MRR + LLM judge 忠实度/相关性，零 RAGAS 依赖） | ✅ 完成 |
+| v0.6 | Agentic 混合路由：规划器 + 扫描执行器（浏览优先）+ 综合器 + 充分性闸门；规模语料实验链 | ✅ 完成 |

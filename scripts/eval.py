@@ -113,6 +113,12 @@ def agent_gen_row(q: dict, retriever, row: dict) -> dict:
         row["route"] = result["route"]
         row["sub_queries"] = result["sub_queries"]
         contexts = result["contexts"]
+        if result["route"] == "agg":                 # v0.6 池召回率: 聚合路径的专属镜头
+            gold = q.get("expect_source")
+            if gold:
+                golds = gold if isinstance(gold, list) else [gold]
+                keys = set(result.get("pool_keys") or [])
+                row["pool_recall"] = round(sum(1 for g in golds if g in keys) / len(golds), 2)
     except NotImplementedError as e:
         reply = f"（AGG 路径未实现: {e}）"
         row["route"] = "agg(墓碑)"
@@ -165,6 +171,8 @@ def main() -> None:
         extra = ""
         if full and not row["refused"]:
             route_s = f"  路:{row['route']}" if agent_mode else ""
+            if agent_mode and "pool_recall" in row:
+                route_s += f"  池召回:{row['pool_recall']}"
             extra = f"  词:{row.get('keyword_ok','-')}  忠实:{row.get('faith','-')}  相关:{row.get('relev','-')}{route_s}"
         print(f"{row['id']}  {'拒' if row['refused'] else '答'}{'✓' if row['refusal_ok'] else '✗'}"
               f"  hit:{hit_s}  mrr:{mrr_s}  top:{row['top_score']:.3f}{extra}")
