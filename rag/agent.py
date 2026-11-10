@@ -12,12 +12,21 @@ from __future__ import annotations
 
 import json
 
+from web import retriever
 from .config import Settings, get_settings
 from .generator import answer
 from .llm import chat
-from .retriever import Retriever
+from .retriever import Retriever ,_rrf_fuse
 
 MAX_SUBS = 8  # 设计 §3.2: 子查询数上限（预算）
+
+# 类别关键词 → 文件名：子查询命中类别词时整架搬回（浏览优先于搜索，设计 §3.2 v3）
+CATEGORY_FILES = {
+    "音箱": "星尘智能家居-智能音箱.md",     "灯具": "星尘智能家居-智能灯具.md",
+    "插座": "星尘智能家居-智能插座.md",     "传感器": "星尘智能家居-智能传感器.md",
+    "安防": "星尘智能家居-智能安防.md",     "影音": "星尘智能家居-智能影音.md",
+    "对比": "星尘家族产品对比.md",          "App": "星尘之声App常见问题.md",
+}
 
 # ---------------------------------------------------------------------------
 # 规划器（助手实现, M1）
@@ -87,23 +96,48 @@ def scan(sub_queries: list[str], *, settings: Settings | None = None) -> list[di
     输入: plan() 给出的子查询列表
     输出: 去重后的候选池 list[dict]，与 search() 的 hit 结构一致，按得分降序
 
-    实现要点（想清楚再动手，都在设计文档 §3.2）:
-      1. 候选池去重键 = (source, chunk_index) —— 你在 _rrf_fuse 里写过同款
-      2. 预算: 子查询耗尽 / 边际枯竭(单轮新增 < 2 块) / 池满 48 块，三选一先到即停
-      3. 每个子查询调 retriever.search(子查询, top_k=8)，注意复用同一个 retriever
-         （BM25 索引构建要几百毫秒，别每轮重建）
-      4. 排序: 池内按块的最高得分降序即可（去重时"保留分高的那份"）
-
-    自测（打通过再进 M3）:
-        .venv\\Scripts\\python -c "from rag.agent import plan, scan; p=plan('支持NFC的产品一共有几款？'); pool=scan(p.sub_queries); ks=[(h['source'],h['chunk_index']) for h in pool]; print(len(pool), sum('NFC 一碰配对：支持' in h['text'] for h in pool))"
-        期望: 池 >= 13 且含全部 13 个 NFC 块（金标清单见 eval/questions.json q24）
     """
-    raise NotImplementedError("scan 待实现 —— 循环控制要点见 docstring 与设计文档 §3.2")
+    s=settings or get_settings()
+    retriever=_get_retriever(s)
+
+    pool: dict[tuple[str,int],dict]={}
+    barren=0
+    for sq in sub_queries:
+        matched = [fn for kw, fn in CATEGORY_FILES.items() if kw in sq]
+        if matched:
+            hits = retriever.get_by_source(matched[0])   # 浏览: 整架搬回（构造性全召回）
+        else:
+            vec = retriever._vector_search(sq, 16)       # 搜索: 语义路径兜底
+            bm = retriever._bm25_search(sq, 16)
+            hits = _rrf_fuse(vec, bm)[:20]
+        added=0
+        for h in hits:
+            key=(h['source'],h['chunk_index'])
+            if key not in pool:
+                added+=1
+                pool[key]=h
+            else:
+                pool[key]= h if h['score']>pool[key]['score'] else pool[key]
+        barren = barren + 1 if added == 0 else 0
+        if barren>=2 or len(pool)>=96:
+            break
+
+    return sorted(pool.values(),key=lambda h: h['score'],reverse=True)
+
+
 
 
 # ---------------------------------------------------------------------------
 # 综合器（学习者实现区, M3 —— 设计 §3.3）
 # ---------------------------------------------------------------------------
+AGG_SYSTEM_PROMPT = """\
+你是一个严谨的文档统计助手。候选片段可能来自多个产品目录，请严格遵守：
+1. 只依据下方提供的【候选片段】，不要使用片段之外的知识；
+2. 先逐条列出满足条件的产品清单（型号 + 关键数字 + [n] 引用），一个不漏；
+3. 清单列完之后，才基于完整清单做比较/计数，最后一句给出最终答案；
+4. 片段不足以覆盖全集时，明确说明覆盖范围，不要用局部结果冒充全集结论；
+5. 如果片段完全无法回答，只回复："知识库中没有相关内容。"
+"""
 
 def synthesize(question: str, pool: list[dict], *, settings: Settings | None = None) -> str:
     """聚合题专用生成: 先逐块列出满足条件的产品清单，再比较/计数，最后给结论。
@@ -112,10 +146,26 @@ def synthesize(question: str, pool: list[dict], *, settings: Settings | None = N
         【候选片段】…同 build_prompt 的编号格式…
         【任务】先从片段中逐条列出满足条件的产品（型号+关键数字+引用），
         再基于完整清单比较/计数，最后一句给出最终答案。
-    为什么"先列清单": 清单即思维链——q21 死于"仅有一款"的全称结论，
-    逼模型先枚举再下结论，就是治它。
     """
-    raise NotImplementedError("synthesize 待实现 —— prompt 骨架见 docstring, M3")
+    blocks=[f"[{i}](来源：{h['source']}第{h['chunk_index']+1}块)\n{h['text']}" for i ,h in enumerate(pool,1)]
+
+    context="\n\n".join(blocks)
+    user= (
+        "【候选片段】\n"
+        f"{context}\n\n"
+        "【任务】\n"
+        f"{question}\n\n"
+        "回答格式要求（两节，缺一不可）:\n"
+        "一、满足条件的产品清单（逐条: 型号 + 关键数字 + 引用编号）\n"
+        "二、最终答案（一句话，基于第一节清单得出）"
+    )
+
+    message=[
+        {"role": "system", "content": AGG_SYSTEM_PROMPT},
+        {"role": "user","content": user}
+    ]
+    return chat(message,temperature=0.0)
+
 
 
 # ---------------------------------------------------------------------------
