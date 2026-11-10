@@ -169,6 +169,51 @@ def synthesize(question: str, pool: list[dict], *, settings: Settings | None = N
 
 
 # ---------------------------------------------------------------------------
+# 实体一致性闸门（助手实现, M4 —— 设计 §3.4）
+# ---------------------------------------------------------------------------
+
+_ENTITY_SYSTEM = """\
+你是检索结果的把关员。判断给出的检索片段【能否用来直接回答】用户问题。
+只输出"能"或"不能"两个字，不要任何其他文字。
+
+判定标准（两条都满足才算"能"）:
+1. 片段讨论的主体与问题所问的主体是同一产品/文档（配套关系也算:
+   问音箱的手机支持，配套 App 文档 = 能）;
+2. 片段里含有与问题直接相关的信息（参数/步骤/政策），不是仅仅话题沾边。
+
+反例（要记住）: 问"音箱可以贴墙安装吗"，检索到影音产品（幕光/声场）的
+参数表——主体不同（影音≠音箱）且没有音箱贴墙信息，答"不能"，
+哪怕字面都提到"安装/墙/音响设备"也不行。
+
+同产品家族不同型号算一致（问"音箱"，检索到"星尘音箱 X1"=能）。
+"""
+
+REFUSAL_ANSWER = "知识库中没有相关内容。"
+
+
+def _entity_gate(question: str, hits: list[dict], *, settings: Settings | None = None) -> bool:
+    """充分性闸门（M4, 由实体闸门升级）: True=放行生成，False=拦截拒答。
+
+    陷阱预警（写给自己和后来人）: 判断返回值时不能用 `"能" in reply`——
+    "不**能**"里也包含"能"，子串会误判。先判"不能"，才是唯一安全写法。
+    """
+    s = settings or get_settings()
+    sources = "\n".join(
+        f"[{i}] {h['source']} 第{h['chunk_index']+1}块: {h['text'][:150].strip()}"
+        for i, h in enumerate(hits[:3], 1)
+    )
+    user = f"【问题】\n{question}\n\n【检索到的片段】\n{sources}"
+    reply = chat(
+        [{"role": "system", "content": _ENTITY_SYSTEM},
+         {"role": "user", "content": user}],
+        settings=s, temperature=0.0,
+    )
+    refuse = "不能" in reply            # 先判"不能"——见 docstring 陷阱
+    print(f"[agent] 闸门: {'拦截' if refuse else '放行'}")
+    return not refuse
+
+
+# ---------------------------------------------------------------------------
 # 主入口（助手实现）
 # ---------------------------------------------------------------------------
 
@@ -198,6 +243,13 @@ def answer_agent(question: str, *, settings: Settings | None = None,
 
     if p.type == "fact":
         hits = r.search(question)          # v0.5 原路，零改动
+        top = hits[0]["score"] if hits else 0.0
+        if top < s.sim_threshold:          # 闸门一: 分数（v0.5 遗产，补进 agent）
+            return {"answer": REFUSAL_ANSWER, "route": "fact-拒(分数)",
+                    "sub_queries": [], "contexts": [h["text"] for h in hits]}
+        if not _entity_gate(question, hits, settings=s):   # 闸门二: 充分性（M4）
+            return {"answer": REFUSAL_ANSWER, "route": "fact-拒(闸门)",
+                    "sub_queries": [], "contexts": [h["text"] for h in hits]}
         return {"answer": answer(question, hits), "route": "fact",
                 "sub_queries": [], "contexts": [h["text"] for h in hits]}
 
