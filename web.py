@@ -32,6 +32,7 @@ from pathlib import Path
 import uvicorn
 
 from rag import chunker, loader
+from rag.agent import answer_agent
 from rag.config import get_settings
 from rag.generator import answer, answer_stream
 from rag.retriever import Retriever
@@ -53,14 +54,14 @@ _MAX_TURNS = 40                           # 单会话保留轮数（改写窗口
 
 
 def _session_path(sid: str) -> Path:
-    """会话文件路径（最小版：直接拼文件名）。
+    """会话文件路径（v0.6.1: 安全债已偿——sid 是浏览器来的不可信输入）。
 
-    安全债记在明处：sid 来自浏览器，若服务对外暴露，恶意 sid（如
-    "../../.env"）可路径穿越覆盖会话目录外的文件——届时第一件事是
-    回来补 _UNSAFE.sub('', sid) 清洗 + 截断 + 空串兜底。
-    当前仅绑 127.0.0.1 单用户使用，风险接受（学习者决策：先攻 SSE 主线）。
+    三层清洗: _UNSAFE 剥掉非 [A-Za-z0-9_-] 字符（"../../.env" 穿越弹头
+    被拆成残渣）→ 截断 64 → 空串兜底（全符号 sid 清洗后为空，落 _anon）。
+    穿越攻击的终点从"任意路径"收敛为"本目录内的安全文件名"。
     """
-    return SESSIONS_DIR / f"{sid}.json"
+    clean = _UNSAFE.sub("", sid)[:64]
+    return SESSIONS_DIR / f"{clean or '_anon'}.json"
 
 
 def _load_history(sid: str) -> list[dict]:
@@ -123,6 +124,33 @@ def _handle_chat(data: dict) -> dict:
     reply = "知识库中没有相关内容。" if refused else answer(standalone, hits)
     _finish_chat(sid, history, reply)
     return _hit_meta(question, standalone, hits, refused) | {"answer": reply}
+
+
+def _handle_agent(data: dict) -> dict:
+    """v0.6 混合路由端点: 规划 → (fact | agg+反思) → 带 Routing 元信息的完整回答。
+
+    与 _handle_chat 的三点差异（都是有意为之）:
+      1. 不做 rewrite——规划器自己做分解，两级改写叠一起反而互相干扰;
+      2. 非流式——聚合路径要跑完整扫描+综合（30~60s），SSE 逐字流没有意义;
+      3. 多返回 route / sub_queries / contexts——前端展示路由透明化。
+    历史照常落盘，与 v0.5 路径共享同一会话，追问上下文不丢。
+    """
+    sid = str(data.get("session_id") or "")[:64]
+    question = str(data.get("question") or "").strip()
+    if not sid or not question:
+        raise ValueError("缺少 session_id 或 question")
+    history = _load_history(sid)
+    history.append({"role": "user", "content": question})
+    result = answer_agent(question)
+    reply = result["answer"]
+    _finish_chat(sid, history, reply)
+    return {
+        "answer": reply,
+        "route": result["route"],
+        "sub_queries": result.get("sub_queries") or [],
+        "contexts": len(result.get("contexts") or []),
+        "refused": "没有相关内容" in reply and len(reply) < 30,
+    }
 
 
 def _handle_ingest() -> dict:
@@ -235,6 +263,12 @@ async def app(scope, receive, send):
             # 同步逻辑（网络调用+检索）丢进默认线程池，事件循环保持畅通
             result = await asyncio.get_running_loop().run_in_executor(
                 None, _handle_chat, data)
+            await _json(send, 200, result)
+
+        elif path == "/api/agent" and method == "POST":
+            data = json.loads(await _read_body(receive) or b"{}")
+            result = await asyncio.get_running_loop().run_in_executor(
+                None, _handle_agent, data)
             await _json(send, 200, result)
 
         elif path == "/api/ingest" and method == "POST":

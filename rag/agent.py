@@ -12,11 +12,10 @@ from __future__ import annotations
 
 import json
 
-from web import retriever
 from .config import Settings, get_settings
 from .generator import answer
 from .llm import chat
-from .retriever import Retriever ,_rrf_fuse
+from .retriever import Retriever, _rrf_fuse
 
 MAX_SUBS = 8  # 设计 §3.2: 子查询数上限（预算）
 
@@ -216,6 +215,76 @@ def _entity_gate(question: str, hits: list[dict], *, settings: Settings | None =
 
 
 # ---------------------------------------------------------------------------
+# 反思循环（助手实现, v0.6.1 Level 2 —— 设计 §3.5 追加）
+# ---------------------------------------------------------------------------
+
+_REFLECT_SYSTEM = """\
+你是聚合回答的充分性评估员。给你问题、当前回答全文、候选池已覆盖的文档、
+以及知识库的完整文档清单。判断: 回答的清单是否覆盖了问题涉及的全部范围。
+只输出严格 JSON，不要任何其他文字:
+  充分: {"sufficient": true}
+  不足: {"sufficient": false, "missing": ["补充子查询1", "补充子查询2"]}
+
+判定要点（做对照，不做推断）:
+- 产品目录类别 = 音箱/灯具/插座/传感器/安防/影音，这六个才是"全部产品"
+  的完整范围；对比/App/手册/办公是补充文档，仅当问题明确点名（如问
+  "星尘家族"才需要对比文档）才算缺口;
+- 问题问"全部/所有产品"类全集，而候选池只覆盖部分产品目录类别 = 不足，
+  missing 给出未覆盖类别对应的子查询（照原问题措辞风格写）;
+- 回答明确说"不足以覆盖全集/基于现有片段"= 不足;
+- 问题范围本就只涉及某类别（如"最便宜的音箱"），池覆盖该类别 = 充分。
+宁缺勿滥: 拿不准就答充分——反思有预算约束，不该为完美主义买单。
+"""
+
+
+def _reflect(question: str, answer_text: str, pool: list[dict],
+             *, settings: Settings | None = None) -> list[str] | None:
+    """反思器（Level 2）: 候选不充分时返回补充子查询；充分或解析失败返回 None。
+
+    残废池实验教训（第一次实测就翻车）: 只给反思器看（问题, 回答）时，
+    回答里的局部真话（"覆盖A1至E3系列"）骗过了它——它不知道库里有几个
+    货架。所以这里把【池覆盖文档】和【库文档清单】摆在一起让它做对照题。
+    解析失败按"充分"处理——反思是增强不是依赖，坏输出绝不进扫描循环。
+    """
+    s = settings or get_settings()
+    covered: dict[str, int] = {}
+    for h in pool:
+        covered[h["source"]] = covered.get(h["source"], 0) + 1
+    covered_s = "\n".join(f"- {src} ({n}块)" for src, n in sorted(covered.items()))
+    shelf_s = "、".join(f"{kw}({fn})" for kw, fn in CATEGORY_FILES.items())
+    user = (f"【问题】\n{question}\n\n【当前回答】\n{answer_text}\n\n"
+            f"【候选池已覆盖的文档】\n{covered_s or '（空）'}\n\n"
+            f"【知识库的文档/类别清单】\n{shelf_s}")
+    reply = chat(
+        [{"role": "system", "content": _REFLECT_SYSTEM},
+         {"role": "user", "content": user}],
+        settings=s, temperature=0.0,
+    )
+    try:
+        raw = reply[reply.find("{"): reply.rfind("}") + 1]
+        obj = json.loads(raw)
+        if obj.get("sufficient"):
+            return None
+        subs = [str(q).strip() for q in obj.get("missing", []) if str(q).strip()]
+        return subs[:MAX_SUBS] or None
+    except (ValueError, AttributeError, TypeError):
+        print("[agent] 反思输出不可解析，按充分处理")
+        return None
+
+
+def _merge_pools(a: list[dict], b: list[dict], cap: int = 96) -> list[dict]:
+    """两轮候选池按 (source, chunk_index) 去重合并（先到先得），截到 cap。"""
+    seen: set[tuple[str, int]] = set()
+    merged: list[dict] = []
+    for h in a + b:
+        key = (h["source"], h["chunk_index"])
+        if key not in seen:
+            seen.add(key)
+            merged.append(h)
+    return merged[:cap]
+
+
+# ---------------------------------------------------------------------------
 # 主入口（助手实现）
 # ---------------------------------------------------------------------------
 
@@ -264,6 +333,12 @@ def answer_agent(question: str, *, settings: Settings | None = None,
 
     pool = scan(p.sub_queries, settings=s)
     ans = synthesize(question, pool, settings=s)
+    # Level 2 反思循环（预算 1 轮）: 充分性不足 → 补扫 → 重综合
+    missing = _reflect(question, ans, pool, settings=s)
+    if missing:
+        print(f"[agent] 反思: 缺 {missing}，补扫一轮")
+        pool = _merge_pools(pool, scan(missing, settings=s))
+        ans = synthesize(question, pool, settings=s)
     pool_keys = [f"{h['source']}#chunk{h['chunk_index']}" for h in pool]
     if "没有相关内容" in ans and len(ans) < 30:      # 聚合路径答不动 → 单发兜底
         print("[agent] 聚合路径拒答，退化单发兜底")
